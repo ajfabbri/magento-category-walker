@@ -12,6 +12,11 @@
 // @author Aaron Fabbri <ajfabbri@gmail.com>
 // Copyright and License see LICENSE file in this directory.
 
+// For more info, see:
+// app/code/core/Mage/Catalog/Model/Category.php 
+// Online docs here:
+// http://docs.magentocommerce.com/Mage_Catalog/Mage_Catalog_Model_Category.html
+
 define('SCRIPT_DIR', realpath(dirname(__FILE__)));
 require_once SCRIPT_DIR . '/../../html/app/Mage.php';
 
@@ -26,21 +31,22 @@ $store = Mage::app()->getStore();
 /**
  * @param $pid		integer product id
  * @param $prod		Mage_Catalog_Model_Product  product model
- * @param $cat_ids	array of category ids
  */
-function print_product_categories($pid, $prod, $cat_ids)
+function product_categories_tostring($pid, $prod)
 {
 	$sku = $prod->getSku();
 	$name = $prod->getName();
 
-	print "Product $pid, $sku, $name: ";
+	$cat_ids = $prod->getCategoryIds();
+	$output = "Product $pid, $sku, $name: ";
 	$category = Mage::getModel('catalog/category');
 	foreach ($cat_ids as $cid) {
 		$cat_i = $category->load($cid);
-		print "[$cid," . $cat_i->getName() . "],";
+		$output .= category_to_name_path($cat_i) . ",  ";
 	}
-	print "\n";
+	return $output;
 }
+
 
 /**
  * @TODO Assign all parent categories to the product as well.
@@ -59,6 +65,9 @@ function fixup_product_categories($pid, $prod, $cat_id)
 	$category = Mage::getModel('catalog/category');
 	$category->load($cat_id);
 	$path_to_root = $category->getParentIds();
+	if (count($path_to_root) != 4) {
+		print "XXX SKU $sku is not bottom level categorized.\n";
+	}
 	foreach ($path_to_root as $path_cid) {
 		$cat_i = Mage::getModel('catalog/category')->load($path_cid);
 		print "[$path_cid," . $cat_i->getName() . "]->";
@@ -67,9 +76,66 @@ function fixup_product_categories($pid, $prod, $cat_id)
 }
 
 /**
- * @param $just_print Don't change anything, just print out products.
+ * Return depth of category, where Root category is 0.
+ * @param $category instance of Mage_Catalog_Model_Category
  */
-function read_products($just_print) {
+function get_category_depth($category) {
+	return $category->getLevel();
+}
+
+/**
+ * Given a category, return a string of the path to the root, using names
+ * instead of Id numbers.
+ * @param category Mage_Catalog_Model_Category instance
+ */
+function category_to_name_path($category) {
+	$path_names = array();
+	foreach ($category->getParentIds() as $node_id) {
+		$node_cat = Mage::getModel('catalog/category')->load($node_id);
+		$path_names[] = $node_cat->getName() . "($node_id)";
+	}
+	return implode($path_names, "/");
+}
+
+/**
+ * @param $pid		product id
+ * @param $prod		Mage_Catalog_Model_Product  product model
+ * @return Array of string descriptions of any issues found
+ */
+function verify_product_category($pid, $prod) {
+	$issues = array();
+	$sku = $prod->getSku();
+	$name = $prod->getName();
+	
+	$category = Mage::getModel('catalog/category');
+
+	$cat_ids = $prod->getCategoryIds();
+	if (count($cat_ids) != 1) {
+		$issues[] = "Not a single category. sku: $sku, name: $name,"
+			. " pid: $pid";
+	}
+	foreach ($cat_ids as $cat_id) {
+		$category->load($cat_id);
+		if (get_category_depth($category) != 4) {
+			$issues[] = "  Not bottom-level category:  " .
+				category_to_name_path($category);
+		}
+	}
+		
+	//print "Path to root for $pid, $sku, $name: ";
+	//$category = Mage::getModel('catalog/category');
+	//$category->load($cat_id);
+
+	return $issues;
+}
+
+/**
+ * Verify that products are categorized as we expect.  We use LightSpeed PRO
+ * point of sale, and it is supposed to only assign products to a bottom level
+ * category.
+ * @param $print_all  Print all products, followed by any errors.
+ */
+function check_product_categories($print_all) {
 	print "Loading products...\n";
 	$prod = Mage::getModel('catalog/product');
 	$products = $prod->getCollection();
@@ -90,30 +156,40 @@ function read_products($just_print) {
 	// stuff we got above references separate copies.. -n00b
 	$prod_m =  Mage::getModel('catalog/product');
 
+
+	$issues = array();
 	foreach($product_ids as $pid) {
 
 		// Not sure why we need a new model for every product load, or the
 		// category data is broken.   I'm a Magento n00b.
 		$p_i = Mage::getModel('catalog/product')->load($pid);
-		
-		// get list of parent categories (path to root)
-		$existing_cat_ids = $p_i->getCategoryIds();
 
-		if ($just_print || count($existing_cat_ids) != 1) {
-			if (!$just_print) {
-				print "Not single category: ";
-			}
-			print_product_categories($pid, $p_i, $existing_cat_ids);
-		} else {
-
-			fixup_product_categories($pid, $p_i, $existing_cat_ids[0]);
+	
+		if ($print_all) {
+			print product_categories_tostring($pid, $p_i) . "\n";
 		}
+
+		$cat_issues = verify_product_category($pid, $p_i);
+		$issues = array_merge($issues, $cat_issues);
+
+		//fixup_product_categories($pid, $p_i, $existing_cat_ids[0]);
+
 		// TODO
 		//  remove root from list (?)
 		//  if list of parents is not empty, assign to product
 
 		//   $product->setCategoryIds(array($category->getId()));
 		//    $product->save();
+	}
+
+	if (count($issues) > 0) {
+		print "***** Found these errors: *****\n";
+		foreach ($issues as $i) {
+			print "$i\n";
+		}
+	} else {
+		print "---- Test passed: All products belong to a single"
+			. " bottom-level category ---\n";
 	}
 }
 
@@ -124,7 +200,7 @@ function read_products($just_print) {
 // Passing false will also cause it to warn about products that have number of
 // categories assigned not equal to 1 (i.e. Lightspeed upload bug).
 //read_products(false);
-read_products(true);
+check_product_categories(true);
 
 ?>
 
