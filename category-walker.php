@@ -151,19 +151,12 @@ function check_product_categories($print_all) {
 	$categories = $category->getCollection();
 	print "Got " . count($categories) . " categories.\n";
 
-
-	// Not sure if we need a separate instance of the product model, or if all the
-	// stuff we got above references separate copies.. -n00b
-	$prod_m =  Mage::getModel('catalog/product');
-
-
 	$issues = array();
 	foreach($product_ids as $pid) {
 
 		// Not sure why we need a new model for every product load, or the
 		// category data is broken.   I'm a Magento n00b.
 		$p_i = Mage::getModel('catalog/product')->load($pid);
-
 	
 		if ($print_all) {
 			print product_categories_tostring($pid, $p_i) . "\n";
