@@ -106,18 +106,18 @@ function verify_product_category($pid, $prod) {
 	$issues = array();
 	$sku = $prod->getSku();
 	$name = $prod->getName();
+	$prod_desc = "sku: $sku, name: $name, pid: $pid";
 	
 	$category = Mage::getModel('catalog/category');
 
 	$cat_ids = $prod->getCategoryIds();
 	if (count($cat_ids) != 1) {
-		$issues[] = "Not a single category. sku: $sku, name: $name,"
-			. " pid: $pid";
+		$issues[] = "Not a single category. $prod_desc";
 	}
 	foreach ($cat_ids as $cat_id) {
 		$category->load($cat_id);
 		if (get_category_depth($category) != 4) {
-			$issues[] = "  Not bottom-level category:  " .
+			$issues[] = "  Not bottom-level category: $prod_desc:  " .
 				category_to_name_path($category);
 		}
 	}
@@ -200,7 +200,9 @@ function check_product_categories($print_all) {
 // Passing false will also cause it to warn about products that have number of
 // categories assigned not equal to 1 (i.e. Lightspeed upload bug).
 //read_products(false);
-check_product_categories(true);
+if ( basename(__FILE__) == basename($_SERVER["SCRIPT_FILENAME"]) ) {
+	check_product_categories(true);
+}
 
 ?>
 
