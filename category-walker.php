@@ -94,31 +94,49 @@ function category_to_name_path($category) {
 		$node_cat = Mage::getModel('catalog/category')->load($node_id);
 		$path_names[] = $node_cat->getName() . "($node_id)";
 	}
+	$path_names[] = $category->getName() . "(" . $category->getId() . ")";
 	return implode($path_names, "/");
 }
 
 /**
  * @param $pid		product id
  * @param $prod		Mage_Catalog_Model_Product  product model
- * @return Array of string descriptions of any issues found
+ * @param $fix_issues	When true, try to fix problems and return info.
+ * @return Array of string descriptions of any issues found (when $fix_issues ==
+ * 	False), or fixed.  When $fix_issues is False, an empty array return
+ * 	means success.
  */
-function verify_product_category($pid, $prod) {
+function verify_product_category($pid, $prod, $fix_issues=False) {
 	$issues = array();
+
 	$sku = $prod->getSku();
 	$name = $prod->getName();
 	$prod_desc = "sku: $sku, name: $name, pid: $pid";
+	$has_issues = False;
 	
 	$category = Mage::getModel('catalog/category');
 
 	$cat_ids = $prod->getCategoryIds();
 	if (count($cat_ids) != 1) {
 		$issues[] = "Not a single category. $prod_desc";
+		$has_issues = True;
 	}
+
 	foreach ($cat_ids as $cat_id) {
 		$category->load($cat_id);
 		if (get_category_depth($category) != 4) {
 			$issues[] = "  Not bottom-level category: $prod_desc:  " .
 				category_to_name_path($category);
+			$has_issues = true;
+		}
+
+		if (! $has_issues && $fix_issues) {
+			// Ignore first two categories: Root Catalog(1),LIGHTSPEED_ROOT_CATEGORY(3)
+			$new_cat_ids = array_slice($category->getParentIds(), 2); 
+			$new_cat_ids[] = $category->getId(); 
+			print "--- Fix: assign $pid to (" . implode($new_cat_ids, ",") . ").\n";
+			$prod->setCategoryIds($new_cat_ids);
+			$prod->save();
 		}
 	}
 		
@@ -162,7 +180,7 @@ function check_product_categories($print_all) {
 			print product_categories_tostring($pid, $p_i) . "\n";
 		}
 
-		$cat_issues = verify_product_category($pid, $p_i);
+		$cat_issues = verify_product_category($pid, $p_i, True);
 		$issues = array_merge($issues, $cat_issues);
 
 		//fixup_product_categories($pid, $p_i, $existing_cat_ids[0]);
